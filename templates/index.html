@@ -1,0 +1,1427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise AI Db2 Agentic Analyzer</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <style>
+        /* ============================================================
+           TOKENS — neutral graphite base, not the tinted blue-black of
+           v1. Violet is the brand/agentic accent, cyan is reserved
+           strictly for "the AI did this", and status colors never
+           double as brand colors so severity always reads unambiguously.
+        ============================================================ */
+        :root{
+            --bg:            #0A0B0D;
+            --bg-soft:       #0D0F13;
+            --panel:         #131519;
+            --panel-raised:  #191C21;
+            --border:        #262930;
+            --border-soft:   #1D2026;
+
+            --ink:           #F1F3F6;
+            --ink-muted:     #939AA6;
+            --ink-faint:     #565B63;
+
+            --ok:            #34D399;  --ok-rgb:        52,211,153;
+            --warn:          #FBBF24;  --warn-rgb:      251,191,36;
+            --critical:      #FB5A5A;  --critical-rgb:  251,90,90;
+            --brand:         #8B5CF6;  --brand-rgb:     139,92,246;   /* agentic / deferred-pile accent */
+            --ai:            #22D3EE;  --ai-rgb:        34,211,238;  /* "AI did this" accent only */
+
+            --font-display:  'Space Grotesk', sans-serif;
+            --font-body:     'Inter', sans-serif;
+            --font-mono:     'JetBrains Mono', monospace;
+        }
+
+        *{ box-sizing:border-box; }
+
+        body{
+            background:
+                radial-gradient(ellipse 900px 500px at 8% -8%, rgba(139,92,246,0.10), transparent 55%),
+                radial-gradient(ellipse 700px 500px at 96% 4%, rgba(34,211,238,0.07), transparent 50%),
+                var(--bg);
+            color: var(--ink);
+            font-family: var(--font-body);
+            min-height: 100vh;
+        }
+
+        h1,h2,h3,h4,h5,h6{ font-family: var(--font-display); letter-spacing:-0.01em; }
+        code, .font-monospace{ font-family: var(--font-mono) !important; }
+
+        @keyframes fadeUp{ from{ opacity:0; transform: translateY(10px);} to{ opacity:1; transform: translateY(0);} }
+        @keyframes pulseDot{ 0%,100%{ opacity:1; transform:scale(1);} 50%{ opacity:.35; transform:scale(.7);} }
+        @keyframes pulseRing{ 0%{ transform:scale(.9); opacity:.9;} 100%{ transform:scale(1.5); opacity:0;} }
+        @keyframes shimmer{ 0%{ background-position: 200% 0;} 100%{ background-position: -200% 0;} }
+        @media (prefers-reduced-motion: reduce){ *{ animation-duration: .001ms !important; animation-iteration-count: 1 !important; } }
+
+        /* ---------------- Auth gate ---------------- */
+        #authGate{
+            position:fixed; inset:0; z-index:2000;
+            background: rgba(5,6,8,0.94); backdrop-filter: blur(6px);
+            display:flex; align-items:center; justify-content:center;
+        }
+        #authGate .card{ width: 370px; animation: fadeUp .35s ease; }
+
+        /* ---------------- Navbar ---------------- */
+        .navbar{
+            background: linear-gradient(180deg, #0D0F13 0%, #0A0B0D 100%) !important;
+            border-bottom: 1px solid var(--border-soft);
+            padding-top: .9rem; padding-bottom: .9rem;
+        }
+        .navbar-brand{
+            font-family: var(--font-display); font-weight: 700; font-size: 1.12rem;
+            display:flex; align-items:center; gap:.65rem; color: var(--ink) !important;
+        }
+        .brand-mark{
+            width:36px; height:36px; border-radius:10px;
+            display:flex; align-items:center; justify-content:center;
+            background: linear-gradient(135deg, rgba(139,92,246,.28), rgba(34,211,238,.16));
+            border:1px solid rgba(139,92,246,.4); color: var(--brand); position:relative;
+        }
+        .brand-mark i{ font-size:1rem; }
+        .brand-mark::after{
+            content:""; position:absolute; inset:-1px; border-radius:10px;
+            border:1px solid rgba(34,211,238,.55); animation: pulseRing 2.4s ease-out infinite;
+        }
+        .brand-sub{ font-size:.68rem; color:var(--ink-faint); font-weight:500; letter-spacing:.02em; }
+
+        .status-pill{
+            font-family: var(--font-mono); font-size:.7rem; font-weight:500; letter-spacing:.03em;
+            padding:.4rem .75rem; border-radius: 20px; display:inline-flex; align-items:center; gap:.5rem;
+            transition: all .25s ease;
+        }
+        .status-pill.live{ color: var(--ok); background: rgba(var(--ok-rgb),0.10); border:1px solid rgba(var(--ok-rgb),0.35); }
+        .status-pill.busy{ color: var(--ai); background: rgba(var(--ai-rgb),0.10); border:1px solid rgba(var(--ai-rgb),0.35); }
+        .status-pill.down{ color: var(--critical); background: rgba(var(--critical-rgb),0.10); border:1px solid rgba(var(--critical-rgb),0.4); }
+        .status-pill .pulse-dot{ width:7px; height:7px; border-radius:50%; background: currentColor; box-shadow: 0 0 8px currentColor; animation: pulseDot 1.8s ease-in-out infinite; }
+
+        /* ---------------- Page head ---------------- */
+        .page-head{ padding: 1.9rem 0 .4rem; }
+        .page-eyebrow{
+            font-family: var(--font-mono); font-size:.72rem; letter-spacing:.12em; text-transform:uppercase;
+            color: var(--brand); margin-bottom:.4rem; display:flex; align-items:center; gap:.5rem;
+        }
+        .page-eyebrow::before{ content:""; width:16px; height:2px; background:var(--brand); border-radius:2px; }
+        .page-title{ font-size:1.55rem; font-weight:700; margin-bottom:.25rem; }
+        .page-desc{ color: var(--ink-muted); font-size:.92rem; max-width: 760px; }
+
+        /* ---------------- Cards / base ---------------- */
+        .card{ background: var(--panel) !important; border: 1px solid var(--border) !important; border-radius: 14px !important; color: var(--ink); }
+        .card-body{ color: var(--ink); }
+        .card-header{
+            background: var(--panel-raised) !important; border-bottom: 1px solid var(--border) !important;
+            border-radius: 14px 14px 0 0 !important; color: var(--ink);
+        }
+        .shadow-sm{ box-shadow: 0 6px 24px rgba(0,0,0,.32) !important; }
+
+        .control-panel .card-body{ padding: 1.4rem 1.5rem; }
+        .control-panel h5{ font-size: 1rem; font-weight:700; }
+        .control-panel .text-muted{ color: var(--ink-muted) !important; }
+
+        .btn{ font-family: var(--font-body); font-weight:600; font-size:.85rem; border-radius:10px; padding:.55rem 1rem; }
+        .btn-sm{ padding:.42rem .8rem; font-size:.78rem; }
+
+        .btn-primary{
+            background: linear-gradient(135deg, var(--brand), #6D3FE0) !important; border: none !important;
+            box-shadow: 0 6px 18px rgba(var(--brand-rgb),0.35);
+        }
+        .btn-primary:hover{ filter: brightness(1.1); }
+        .btn-primary:disabled{ opacity:.55; box-shadow:none; }
+
+        .btn-outline-secondary{ color: var(--ink-muted) !important; border-color: var(--border) !important; background: transparent !important; }
+        .btn-outline-secondary:hover{ background: var(--panel-raised) !important; color: var(--ink) !important; border-color: var(--ink-faint) !important; }
+        .btn-outline-success{ color: var(--ok) !important; border-color: rgba(var(--ok-rgb),0.5) !important; background: transparent !important; }
+        .btn-outline-success:hover{ background: rgba(var(--ok-rgb),0.12) !important; }
+        .btn-outline-warning{ color: var(--warn) !important; border-color: rgba(var(--warn-rgb),0.5) !important; background: transparent !important; }
+        .btn-outline-warning:hover{ background: rgba(var(--warn-rgb),0.12) !important; }
+        .btn-outline-light{ color: var(--ink-muted) !important; border-color: var(--border) !important; background: transparent !important; }
+        .btn-outline-light:hover{ background: rgba(255,255,255,.06) !important; color:var(--ink) !important; }
+        .btn-outline-danger{ color: var(--critical) !important; border-color: rgba(var(--critical-rgb),0.5) !important; background: transparent !important; }
+        .btn-outline-danger:hover{ background: rgba(var(--critical-rgb),0.12) !important; }
+        .btn-outline-info{ color: var(--ai) !important; border-color: rgba(var(--ai-rgb),0.5) !important; background: transparent !important; }
+        .btn-outline-info:hover{ background: rgba(var(--ai-rgb),0.12) !important; }
+
+        .form-control, .form-select{ background: var(--bg-soft) !important; border:1px solid var(--border) !important; color: var(--ink) !important; }
+        .form-control:focus{ border-color: var(--brand) !important; box-shadow: 0 0 0 .2rem rgba(var(--brand-rgb),.2) !important; }
+        .form-control::placeholder{ color: var(--ink-faint) !important; }
+
+        /* ---------------- Tag summary cards (Genius-Hub style) ---------------- */
+        .tag-row{ display:flex; gap:.75rem; flex-wrap:wrap; }
+        .tag-card{
+            flex: 1 1 200px; min-width: 180px; cursor:pointer; padding: .95rem 1.1rem;
+            background: var(--panel); border: 1.5px solid var(--border); border-radius: 12px;
+            transition: all .18s ease; animation: fadeUp .3s ease both;
+        }
+        .tag-card:hover{ border-color: var(--ink-faint); transform: translateY(-2px); }
+        .tag-card.active{ border-color: rgba(var(--brand-rgb),.6); background: linear-gradient(180deg, rgba(139,92,246,.08), rgba(19,21,25,0)), var(--panel); box-shadow: 0 0 0 1px rgba(var(--brand-rgb),.15) inset; }
+        .tag-card .tag-name{ font-weight:700; font-size:.92rem; display:flex; align-items:center; gap:.45rem; }
+        .tag-card .tag-name i{ color: var(--brand); font-size:.78rem; }
+        .tag-card .tag-count{ color: var(--ink-faint); font-size:.72rem; font-family: var(--font-mono); margin-top:.15rem; }
+        .tag-card .tag-badges{ display:flex; gap:.5rem; margin-top:.6rem; }
+        .mini-badge{ display:inline-flex; align-items:center; gap:.3rem; font-family: var(--font-mono); font-size:.74rem; font-weight:600; padding:.15rem .5rem; border-radius: 20px; }
+        .mini-badge.crit{ color: var(--critical); background: rgba(var(--critical-rgb),.12); }
+        .mini-badge.warn{ color: var(--warn); background: rgba(var(--warn-rgb),.12); }
+        .mini-badge.ok{ color: var(--ok); background: rgba(var(--ok-rgb),.12); }
+
+        /* ---------------- Node cards ---------------- */
+        .node-card{
+            cursor:pointer; transition: all .18s ease; border: 1.5px solid var(--border) !important;
+            position: relative; overflow:hidden; animation: fadeUp .35s ease both;
+        }
+        .node-card::before{ content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background: var(--border); transition: background .18s ease; }
+        .node-card:hover{ transform: translateY(-3px); border-color: var(--ink-faint) !important; }
+        .node-card.selected{
+            border-color: rgba(var(--brand-rgb),0.55) !important;
+            background: linear-gradient(180deg, rgba(139,92,246,0.08), rgba(19,21,25,0)) , var(--panel) !important;
+        }
+        .node-card.selected::before{ background: var(--brand); box-shadow: 0 0 10px rgba(var(--brand-rgb),.6); }
+        .node-card .badge.bg-primary{ font-family: var(--font-mono); font-size:.65rem; letter-spacing:.04em; }
+        .node-card .badge.bg-warning{ font-family: var(--font-mono); font-size:.65rem; letter-spacing:.04em; }
+        .node-card h5{ font-size:1.02rem; font-weight:700; margin-top:.35rem; }
+        .node-card code{ color: var(--ink-muted); font-size:.78rem; background:transparent; }
+        .node-card .last-checked{ font-family: var(--font-mono); font-size:.68rem; color: var(--ink-faint); }
+
+        .status-dot{ width:10px; height:10px; border-radius:50%; display:inline-block; position:relative; }
+        .dot-online{ background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+        .dot-online::after{ content:""; position:absolute; inset:-4px; border-radius:50%; border:1.5px solid var(--ok); animation: pulseRing 1.8s ease-out infinite; }
+        .dot-offline{ background: var(--critical); box-shadow: 0 0 6px var(--critical); }
+        .dot-checking{ background: var(--ink-faint); }
+        .dot-checking::after{ content:""; position:absolute; inset:-4px; border-radius:50%; border:1.5px solid var(--ink-faint); animation: pulseRing 1.1s ease-out infinite; }
+
+        .section-label{
+            font-family: var(--font-mono); font-size:.72rem; letter-spacing:.08em; text-transform:uppercase;
+            color: var(--ink-muted) !important; font-weight:500;
+        }
+        .section-label i{ color: var(--brand); }
+
+        /* ---------------- Log shipping connector ---------------- */
+        .stream-connector{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.5rem; height:100%; padding: .5rem 0; }
+        .stream-label{ font-family: var(--font-mono); font-size:.65rem; letter-spacing:.06em; text-transform:uppercase; color: var(--ink-faint); white-space:nowrap; display:flex; align-items:center; gap:.35rem; }
+        .stream-label i{ color: var(--ok); font-size:.6rem; }
+        .stream-track{ position:relative; width:100%; min-width:56px; height:2px; background: var(--border-soft); border-radius:3px; overflow:visible; }
+        .stream-track::before{ content:""; position:absolute; inset:0; border-radius:3px; background: linear-gradient(90deg, transparent, rgba(var(--ok-rgb),.65), transparent); background-size: 200% 100%; animation: shimmer 2.2s linear infinite; }
+        .stream-track::after{ content:""; position:absolute; right:-1px; top:50%; width:6px; height:6px; border-top: 1.5px solid var(--ink-faint); border-right: 1.5px solid var(--ink-faint); transform: translateY(-50%) rotate(45deg); }
+        .stream-packet{ position:absolute; top:50%; width:6px; height:6px; border-radius:50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); transform: translate(-50%,-50%); animation: streamPacket 2.1s linear infinite; }
+        .stream-packet.p2{ animation-delay: .7s; } .stream-packet.p3{ animation-delay: 1.4s; }
+        @keyframes streamPacket{ 0%{ left:0%; opacity:0; } 8%{ opacity:1; } 92%{ opacity:1; } 100%{ left:100%; opacity:0; } }
+        @media (max-width: 991.98px){ .stream-connector{ flex-direction:row; padding:.5rem 0; } .stream-track{ min-width:0; } }
+
+        /* ---------------- Terminals ---------------- */
+        .terminal-box{
+            background: #060709 !important; color: #8CF7CB !important; font-family: var(--font-mono) !important;
+            border-radius: 0 0 14px 14px; padding: 14px 16px; max-height: 260px; overflow-y:auto;
+            font-size: .82rem; line-height:1.6; border-top: 1px solid var(--border);
+        }
+        .terminal-box::-webkit-scrollbar{ width:6px; }
+        .terminal-box::-webkit-scrollbar-thumb{ background:#20241E; border-radius:4px; }
+        .card-header.terminal-head{ background: var(--panel-raised) !important; border-radius: 14px 14px 0 0 !important; }
+        .log-error{ color: #FF9E9E; }
+        .log-demo-tag{ color: var(--ai); font-size:.68rem; border:1px solid rgba(var(--ai-rgb),.4); padding: 0 .4rem; border-radius: 4px; margin-left:.4rem; }
+
+        .alert-success{ --bs-alert-color: #A7F3D8; --bs-alert-bg: rgba(var(--ok-rgb), 0.10); --bs-alert-border-color: rgba(var(--ok-rgb), 0.35); border-radius: 12px; }
+        .alert-danger{ --bs-alert-color: #FFD3D8; --bs-alert-bg: rgba(var(--critical-rgb), 0.10); --bs-alert-border-color: rgba(var(--critical-rgb), 0.4); border-radius: 12px; }
+        .alert i{ color: inherit; }
+
+        .mentor-box{ border-left: 3px solid var(--ai) !important; background: rgba(var(--ai-rgb), 0.07) !important; border-radius: 10px; }
+        .mentor-box h5{ color: var(--ai) !important; font-size:.95rem; }
+        .mentor-box p{ color: var(--ink) !important; white-space: pre-line; }
+
+        .badge{ font-family: var(--font-mono); font-weight:600; font-size:.72rem; letter-spacing:.02em; border-radius:7px; padding:.42em .65em; }
+        .bg-primary{ background: rgba(var(--brand-rgb),0.16) !important; color: var(--brand) !important; }
+        .bg-info{ background: rgba(var(--ai-rgb),0.16) !important; color: var(--ai) !important; }
+        .bg-success{ background: rgba(var(--ok-rgb),0.16) !important; color: var(--ok) !important; }
+        .bg-danger{ background: rgba(var(--critical-rgb),0.18) !important; color: var(--critical) !important; animation: pulseDot 2s ease-in-out infinite; }
+        .bg-warning{ background: rgba(var(--warn-rgb),0.18) !important; color: var(--warn) !important; }
+        .bg-white{ background: #EEF2FA !important; }
+        .bg-dark{ background: var(--bg-soft) !important; }
+        .text-success{ color: var(--ok) !important; }
+        .text-danger{ color: var(--critical) !important; }
+        .text-dark{ color: #0F1522 !important; }
+        .text-white{ color: var(--ink) !important; }
+        .text-light{ color: var(--ink-muted) !important; }
+        .text-info{ color: var(--ai) !important; }
+        .text-muted{ color: var(--ink-muted) !important; }
+        .border-primary{ border-color: rgba(var(--brand-rgb),0.5) !important; }
+        .border-secondary{ border-color: var(--border) !important; }
+
+        #riskBadge.bg-white{ color: #0F1522 !important; font-size:.78rem !important; padding:.5em .9em; }
+
+        #resultsCard{ border-radius:16px !important; overflow:hidden; animation: fadeUp .4s ease both; }
+        #resultsHeader h4{ font-size:1.2rem; }
+        #hadrWarningBox{ border-radius:12px; }
+        #topDiffContainer .card{ border-radius:12px !important; }
+        #topDiffContainer h6{ font-size:.92rem; }
+        #topDiffContainer p{ color: var(--ink-muted); }
+        #driftItemsList .card{ border-radius:12px !important; animation: fadeUp .3s ease both; }
+        #driftItemsList h5{ font-size:.98rem; }
+        #driftItemsList .bg-light{ background: var(--bg-soft) !important; border: 1px solid var(--border-soft); border-radius: 8px; color: var(--ink); }
+        #driftItemsList .bg-dark{ border-radius: 8px; }
+
+        code.remediation-cmd{
+            background: #060709 !important; color: #8CF7CB !important; padding: 10px 12px; border-radius: 8px;
+            display:block; font-family: var(--font-mono); font-size:.82rem; border: 1px solid #16241C;
+            white-space: pre-wrap; word-break: break-word;
+        }
+
+        /* ---------------- Deferred pile (signature element) ----------------
+           A literal stack of cards: each deferred item is a layer, offset
+           and rotated slightly, so "work waiting on a maintenance window"
+           reads as a physical pile rather than another list row. */
+        #deferredPileSection{ display:none; }
+        #deferredPileSection.has-items{ display:block; }
+        .pile-wrap{ display:flex; align-items:center; gap:1.75rem; flex-wrap:wrap; }
+        .pile-stack{ position:relative; width: 150px; height: 118px; flex-shrink:0; }
+        .pile-card{
+            position:absolute; inset:0; border-radius:10px; border:1.5px solid rgba(var(--brand-rgb),.45);
+            background: linear-gradient(160deg, rgba(139,92,246,.14), rgba(19,21,25,.9));
+            box-shadow: 0 8px 18px rgba(0,0,0,.35);
+        }
+        .pile-card i{ position:absolute; top:10px; left:10px; color: var(--brand); font-size:.85rem; opacity:.8; }
+        .pile-card:nth-child(1){ transform: rotate(-9deg) translate(-10px, 4px); z-index:1; }
+        .pile-card:nth-child(2){ transform: rotate(-3deg) translate(-4px, 2px); z-index:2; }
+        .pile-card:nth-child(3){ transform: rotate(4deg) translate(4px, -2px); z-index:3; }
+        .pile-card:nth-child(4){
+            transform: rotate(0deg); z-index:4; display:flex; flex-direction:column; align-items:center; justify-content:center;
+            border-color: rgba(var(--brand-rgb),.7);
+        }
+        .pile-count{ font-family: var(--font-display); font-size:1.9rem; font-weight:700; color: var(--ink); line-height:1; }
+        .pile-count-label{ font-family: var(--font-mono); font-size:.65rem; color: var(--ink-faint); text-transform:uppercase; letter-spacing:.06em; margin-top:.2rem; }
+        .pile-meta{ flex:1; min-width:220px; }
+        .pile-meta h6{ font-weight:700; margin-bottom:.3rem; }
+        .pile-meta p{ color: var(--ink-muted); font-size:.86rem; margin-bottom:.6rem; }
+        .pile-item-chip{
+            display:inline-flex; align-items:center; gap:.4rem; font-family: var(--font-mono); font-size:.74rem;
+            background: var(--bg-soft); border:1px solid var(--border-soft); color: var(--ink-muted);
+            padding:.25rem .6rem; border-radius: 20px; margin: 0 .35rem .35rem 0;
+        }
+        .pile-item-chip .status-dot{ width:6px; height:6px; }
+
+        #validationSection{ background: var(--bg-soft) !important; border: 1px solid var(--border); border-radius: 12px !important; }
+        #validationSection h5{ color: var(--ai) !important; font-size:.95rem; }
+
+        #servicenowSection{ background: var(--panel) !important; border: 1px solid var(--border) !important; border-radius: 14px !important; }
+        .servicenow-table{ margin-bottom:0; }
+        .servicenow-table th{ width: 220px; background: var(--panel-raised) !important; color: var(--ink-muted) !important; font-family: var(--font-mono); font-size: .78rem; font-weight:500; border-color: var(--border) !important; }
+        .servicenow-table td{ background: var(--panel) !important; color: var(--ink) !important; border-color: var(--border) !important; font-size: .88rem; white-space: pre-line; }
+        .table-bordered{ border-color: var(--border) !important; }
+
+        #activityFeed .activity-row{ display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.55rem .25rem; border-bottom: 1px solid var(--border-soft); font-size:.82rem; animation: fadeUp .3s ease both; }
+        #activityFeed .activity-row:last-child{ border-bottom: none; }
+        #activityFeed .activity-meta{ color: var(--ink-faint); font-family: var(--font-mono); font-size:.72rem; }
+
+        .modal-content{ background: var(--panel) !important; border:1px solid var(--border) !important; border-radius:14px !important; color: var(--ink); }
+        .modal-header{ border-bottom:1px solid var(--border) !important; background: var(--panel-raised) !important; border-radius:14px 14px 0 0 !important; }
+        .modal-footer{ border-top:1px solid var(--border) !important; background: var(--panel-raised) !important; border-radius:0 0 14px 14px !important; }
+
+        ::-webkit-scrollbar{ width:8px; height:8px; }
+        ::-webkit-scrollbar-thumb{ background: var(--border); border-radius:6px; }
+    </style>
+</head>
+<body>
+
+    <!-- ================= AUTH GATE ================= -->
+    <div id="authGate">
+        <div class="card shadow-sm border-0">
+            <div class="card-body p-4">
+                <h5 class="fw-bold mb-1"><i class="fa-solid fa-lock me-2" style="color:var(--brand)"></i>Sign in</h5>
+                <p class="text-muted small mb-3">Enter your API key to open the console. Your DBA lead issues keys, and this browser stores yours locally — nowhere else.</p>
+                <input type="password" id="apiKeyInput" class="form-control mb-3" placeholder="X-API-Key">
+                <button class="btn btn-primary w-100" onclick="submitApiKey()">Continue</button>
+                <div id="authError" class="text-danger small mt-2 d-none">That key didn't work, or the server is unreachable.</div>
+            </div>
+        </div>
+    </div>
+
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand" href="#">
+                <span class="brand-mark"><i class="fa-solid fa-wave-square"></i></span>
+                <span>
+                    Enterprise AI Db2 Agentic Analyzer
+                    <div class="brand-sub">Agentic governance console</div>
+                </span>
+            </a>
+            <div class="d-flex align-items-center gap-2">
+                <span id="topStatusPill" class="status-pill live"><span class="pulse-dot"></span><span id="topStatusText">Live — checked just now</span></span>
+                <button class="btn btn-outline-light btn-sm" onclick="signOut()"><i class="fa-solid fa-right-from-bracket me-1"></i>Sign out</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid px-4 page-head">
+        <div class="page-eyebrow">Cluster analysis</div>
+        <div class="page-title">Review replication state across your Db2 clusters</div>
+        <div class="page-desc">Pick the nodes to inspect, run an AI-assisted parity check grounded in official Db2 documentation, watch diagnostics as they arrive, and approve every fix yourself before it runs.</div>
+    </div>
+
+    <div class="container-fluid px-4 py-4">
+
+        <!-- Tag / cluster summary row -->
+        <div class="tag-row mb-4">
+            <div class="tag-card active" id="tag-all" onclick="selectPreset('all')">
+                <div class="tag-name"><i class="fa-solid fa-layer-group"></i>All clusters</div>
+                <div class="tag-count" id="count-all">4 nodes</div>
+                <div class="tag-badges" id="badges-all"></div>
+            </div>
+            <div class="tag-card" id="tag-appa" onclick="selectPreset('appa')">
+                <div class="tag-name"><i class="fa-solid fa-database"></i>App A · KYDB2A</div>
+                <div class="tag-count" id="count-appa">2 nodes</div>
+                <div class="tag-badges" id="badges-appa"></div>
+            </div>
+            <div class="tag-card" id="tag-appb" onclick="selectPreset('appb')">
+                <div class="tag-name"><i class="fa-solid fa-database"></i>App B · KYDB2B</div>
+                <div class="tag-count" id="count-appb">2 nodes</div>
+                <div class="tag-badges" id="badges-appb"></div>
+            </div>
+        </div>
+
+        <!-- Controls Header -->
+        <div class="card shadow-sm border-0 mb-4 control-panel">
+            <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
+                <div>
+                    <h5 class="mb-1"><i class="fa-solid fa-network-wired me-2" style="color:var(--brand)"></i>Target cluster selection</h5>
+                    <p class="text-muted small mb-0">Run an HADR state &amp; configuration analysis against the selected servers. <span id="lastCheckedText" class="text-muted">Not checked yet.</span></p>
+                </div>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <button class="btn btn-outline-secondary btn-sm" onclick="selectPreset('all')">Select all</button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="selectPreset('appa')">App A only</button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="selectPreset('appb')">App B only</button>
+                    <button class="btn btn-outline-success btn-sm ms-2" onclick="downloadAuditCsv()">
+                        <i class="fa-solid fa-file-csv me-1"></i>Export audit CSV
+                    </button>
+                    <button id="scanBtn" class="btn btn-primary ms-2 px-4" onclick="executeScan()">
+                        <i class="fa-solid fa-bolt me-2"></i>Analyze selected nodes
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4">
+        <div class="col-xl-8">
+
+        <!-- App A Grid -->
+        <h6 class="section-label mb-3"><i class="fa-solid fa-server me-2"></i>App A cluster (KYDB2A)</h6>
+        <div class="row g-3 mb-4 align-items-center">
+            <div class="col-md-6 col-lg-5">
+                <div class="card shadow-sm node-card selected" id="card-appa_primary" onclick="toggleSelection('appa_primary')">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="badge bg-primary">APP A · PRIMARY</span>
+                            <span class="status-dot dot-checking" id="dot-appa_primary"></span>
+                        </div>
+                        <h5 class="mb-1">primary-appa-01</h5>
+                        <p class="text-muted small mb-2">Host: <code id="host-appa_primary">—</code></p>
+                        <div class="d-flex justify-content-between small text-secondary">
+                            <span>Status: <strong id="txt-appa_primary" class="text-muted">Checking…</strong></span>
+                            <span class="last-checked" id="lc-appa_primary"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-lg-2">
+                <div class="stream-connector">
+                    <span class="stream-label"><i class="fa-solid fa-circle"></i>Log shipping</span>
+                    <div class="stream-track">
+                        <span class="stream-packet p1"></span><span class="stream-packet p2"></span><span class="stream-packet p3"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-5">
+                <div class="card shadow-sm node-card selected" id="card-appa_standby" onclick="toggleSelection('appa_standby')">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="badge bg-warning text-dark">APP A · STANDBY</span>
+                            <span class="status-dot dot-checking" id="dot-appa_standby"></span>
+                        </div>
+                        <h5 class="mb-1">secondary-appa-02</h5>
+                        <p class="text-muted small mb-2">Host: <code id="host-appa_standby">—</code></p>
+                        <div class="d-flex justify-content-between small text-secondary">
+                            <span>Status: <strong id="txt-appa_standby" class="text-muted">Checking…</strong></span>
+                            <span class="last-checked" id="lc-appa_standby"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- App B Grid -->
+        <h6 class="section-label mb-3"><i class="fa-solid fa-server me-2"></i>App B cluster (KYDB2B)</h6>
+        <div class="row g-3 mb-4 align-items-center">
+            <div class="col-md-6 col-lg-5">
+                <div class="card shadow-sm node-card" id="card-appb_primary" onclick="toggleSelection('appb_primary')">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="badge bg-primary">APP B · PRIMARY</span>
+                            <span class="status-dot dot-checking" id="dot-appb_primary"></span>
+                        </div>
+                        <h5 class="mb-1">primary-appb-01</h5>
+                        <p class="text-muted small mb-2">Host: <code id="host-appb_primary">—</code></p>
+                        <div class="d-flex justify-content-between small text-secondary">
+                            <span>Status: <strong id="txt-appb_primary" class="text-muted">Checking…</strong></span>
+                            <span class="last-checked" id="lc-appb_primary"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-lg-2">
+                <div class="stream-connector">
+                    <span class="stream-label"><i class="fa-solid fa-circle"></i>Log shipping</span>
+                    <div class="stream-track">
+                        <span class="stream-packet p1"></span><span class="stream-packet p2"></span><span class="stream-packet p3"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-5">
+                <div class="card shadow-sm node-card" id="card-appb_standby" onclick="toggleSelection('appb_standby')">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="badge bg-warning text-dark">APP B · STANDBY</span>
+                            <span class="status-dot dot-checking" id="dot-appb_standby"></span>
+                        </div>
+                        <h5 class="mb-1">secondary-appb-02</h5>
+                        <p class="text-muted small mb-2">Host: <code id="host-appb_standby">—</code></p>
+                        <div class="d-flex justify-content-between small text-secondary">
+                            <span>Status: <strong id="txt-appb_standby" class="text-muted">Checking…</strong></span>
+                            <span class="last-checked" id="lc-appb_standby"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Execution log -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header terminal-head d-flex justify-content-between align-items-center py-2">
+                <span class="small font-monospace"><i class="fa-solid fa-terminal me-2" style="color:var(--brand)"></i>Execution log</span>
+                <button class="btn btn-outline-light btn-sm py-0" onclick="refreshNodeStatuses()">Refresh statuses</button>
+            </div>
+            <div class="card-body p-0">
+                <div id="consoleTerminal" class="terminal-box">[System initialized] Waiting for sign-in…</div>
+            </div>
+        </div>
+
+        <!-- Live diag log stream -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header terminal-head d-flex justify-content-between align-items-center py-2 flex-wrap gap-2">
+                <span class="small font-monospace"><i class="fa-solid fa-satellite-dish me-2" style="color:var(--ai)"></i>Live db2diag.log multiplexer</span>
+                <div class="d-flex align-items-center gap-2">
+                    <span id="wsStatusPill" class="status-pill down" style="font-size:.65rem; padding:.3rem .6rem;"><span class="pulse-dot"></span><span id="wsStatusText">Not connected</span></span>
+                    <button class="btn btn-outline-warning btn-sm py-0" id="streamBtn" onclick="toggleStream()">▶ Connect</button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div id="diagTerminal" class="terminal-box">Not connected yet. Click "Connect" to tail db2diag.log across all cluster nodes. If the live socket can't reach the backend after a few retries, a clearly-labeled demo stream steps in so you can still try log analysis.</div>
+            </div>
+        </div>
+
+        <!-- AI Output Results -->
+        <div id="resultsCard" class="card shadow-sm border-0 d-none">
+            <div id="resultsHeader" class="card-header py-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h4 id="resultsTitle" class="mb-0 fw-bold">Analysis report</h4>
+                    <span id="riskBadge" class="badge fs-6">Risk rating</span>
+                </div>
+            </div>
+            <div class="card-body p-4">
+                <div id="hadrWarningBox" class="alert alert-danger d-none shadow-sm mb-4" role="alert">
+                    <h5 class="fw-bold mb-1"><i class="fa-solid fa-triangle-exclamation me-2"></i>HADR replication health alert</h5>
+                    <p id="hadrWarningText" class="mb-0 small font-monospace"></p>
+                </div>
+
+                <div class="mentor-box p-3 mb-4">
+                    <h5 class="fw-bold mb-2"><i class="fa-solid fa-user-ninja me-2"></i>Senior DBA advisor summary</h5>
+                    <p id="mentorSummaryText" class="mb-0 fs-6"></p>
+                </div>
+
+                <div id="topDiffSection" class="mb-4 d-none">
+                    <h5 class="fw-bold mb-3"><i class="fa-solid fa-star me-2" style="color:var(--warn)"></i>Top differences &amp; impact spotlight</h5>
+                    <div id="topDiffContainer" class="row g-3"></div>
+                </div>
+
+                <!-- Deferred pile — signature element -->
+                <div id="deferredPileSection" class="mb-4">
+                    <h5 class="fw-bold mb-3"><i class="fa-solid fa-layer-group me-2" style="color:var(--brand)"></i>Deferred remediation pile</h5>
+                    <div class="card border-0 p-3" style="background: var(--bg-soft);">
+                        <div class="pile-wrap">
+                            <div class="pile-stack" id="pileStack">
+                                <div class="pile-card"></div>
+                                <div class="pile-card"></div>
+                                <div class="pile-card"></div>
+                                <div class="pile-card">
+                                    <i class="fa-solid fa-clock"></i>
+                                    <span class="pile-count" id="pileCount">0</span>
+                                    <span class="pile-count-label">deferred</span>
+                                </div>
+                            </div>
+                            <div class="pile-meta">
+                                <h6>These wait for a maintenance window</h6>
+                                <p>Deferred parameters need a database or instance restart to take effect, so they're staged here instead of mixed in with changes that apply immediately.</p>
+                                <div id="pileChips"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <h5 class="fw-bold mb-3"><i class="fa-solid fa-list-check me-2" style="color:var(--brand)"></i>Detailed parameter breakdown &amp; step-by-step remediation</h5>
+                <div id="driftItemsList" class="mb-4"></div>
+
+                <div id="validationSection" class="text-white p-3 mb-4">
+                    <h5 class="fw-bold mb-2"><i class="fa-solid fa-check-double me-2"></i>Post-remediation validation</h5>
+                    <p id="validationSubtext" class="small text-light mb-2">Run these checks after remediation to confirm the fix held:</p>
+                    <code id="validationCode" class="remediation-cmd"></code>
+                </div>
+
+                <div id="servicenowSection" class="p-4 d-none">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="fw-bold mb-0"><i class="fa-solid fa-ticket me-2" style="color:var(--critical)"></i>ServiceNow change request &amp; CTASK template</h5>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="copyServiceNowTable()"><i class="fa-solid fa-copy me-1"></i>Copy template</button>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-bordered servicenow-table align-middle mb-0">
+                            <tbody>
+                                <tr><th>Short description</th><td id="snShortDesc"></td></tr>
+                                <tr><th>Target CI / database</th><td id="snCi"></td></tr>
+                                <tr><th>Category &amp; assignment</th><td id="snCategory"></td></tr>
+                                <tr><th>Outage required?</th><td id="snOutage"></td></tr>
+                                <tr><th>Description</th><td id="snDesc"></td></tr>
+                                <tr><th>Implementation plan</th><td id="snPlan" class="font-monospace"></td></tr>
+                                <tr><th>Backout plan</th><td id="snBackout" class="font-monospace"></td></tr>
+                                <tr><th>Testing plan</th><td id="snTesting"></td></tr>
+                                <tr><th>Associated CTASKs</th><td id="snCtasks"></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        </div>
+
+        <!-- Right column: recent activity -->
+        <div class="col-xl-4">
+            <div class="card shadow-sm border-0 mb-4">
+                <div class="card-header py-3 d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0 fw-bold"><i class="fa-solid fa-clock-rotate-left me-2" style="color:var(--brand)"></i>Recent activity</h6>
+                    <button class="btn btn-outline-light btn-sm py-0" onclick="loadActivity()">Refresh</button>
+                </div>
+                <div class="card-body">
+                    <div id="activityFeed" class="text-muted small">Loading…</div>
+                </div>
+            </div>
+        </div>
+        </div>
+
+    </div>
+
+    <!-- ================= HITL APPROVAL MODAL ================= -->
+    <div class="modal fade" id="hitlModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content shadow">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fa-solid fa-robot me-2" style="color:var(--ai)"></i>Authorize AI remediation (human in the loop)</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <span id="modalAppName" class="fw-bold fs-5"></span>
+                        <span id="modalBadge" class="badge px-3 py-2"></span>
+                    </div>
+                    <div class="card border-0 mb-3 p-2" style="background: var(--bg-soft);">
+                        <div class="row text-center small">
+                            <div class="col-4">Baseline: <strong id="modalBaseVal" class="font-monospace" style="color:var(--brand)"></strong></div>
+                            <div class="col-4">Primary: <strong id="modalPriVal" class="font-monospace"></strong></div>
+                            <div class="col-4">Standby: <strong id="modalStbyVal" class="font-monospace"></strong></div>
+                        </div>
+                    </div>
+                    <div class="alert alert-secondary small" id="modalRca" style="background:var(--panel-raised); border-color:var(--border); color:var(--ink);"></div>
+                    <label class="form-label fw-bold small">Staged command (validated server-side, statement-by-statement, before execution):</label>
+                    <div class="p-3 rounded font-monospace small mb-2" id="modalCmd" style="background:#060709; color:#8CF7CB; border:1px solid #16241C;"></div>
+                    <small class="text-muted">Target host IP(s): <strong id="modalTargetDisplay"></strong></small>
+                    <input type="hidden" id="targetIp"><input type="hidden" id="targetApp">
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-primary" id="execBtn" onclick="executeFix()"><i class="fa-solid fa-check me-1"></i>Authorize &amp; execute via SSH</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Rendered server-side from request.scope["root_path"] — this is the
+        // ONE place the mount prefix is defined. Every fetch/WS call below
+        // builds off this constant instead of hardcoding a path, so moving
+        // the app to a different mount point is a one-line server change,
+        // not a find-and-replace across JS.
+        const BASE_PATH = {{ base_path | tojson }};
+
+        const allKeys = ['appa_primary', 'appa_standby', 'appb_primary', 'appb_standby'];
+        let apiKey = localStorage.getItem('db2_api_key') || '';
+        let hitlModal, streamSocket = null, streaming = false;
+        let lastClusterNodeMap = {};
+        let lastNodeData = {};
+        let pollTimer = null, tickTimer = null, lastCheckedAt = null;
+        let wsReconnectAttempts = 0, wsReconnectTimer = null, wsUserRequested = false, wsDemoMode = false, wsDemoTimer = null;
+        const WS_MAX_ATTEMPTS = 5;
+
+        function esc(s) {
+            return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+
+        function authHeaders(extra) {
+            return Object.assign({ 'X-API-Key': apiKey }, extra || {});
+        }
+
+        function setTopStatus(mode, text) {
+            const pill = document.getElementById('topStatusPill');
+            pill.className = `status-pill ${mode}`;
+            document.getElementById('topStatusText').textContent = text;
+        }
+
+        function timeAgo(ts) {
+            if (!ts) return '';
+            const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+            if (s < 5) return 'just now';
+            if (s < 60) return `${s}s ago`;
+            const m = Math.floor(s / 60);
+            return `${m}m ago`;
+        }
+
+        async function submitApiKey() {
+            const val = document.getElementById('apiKeyInput').value.trim();
+            if (!val) return;
+            apiKey = val;
+            try {
+                const res = await fetch(`${BASE_PATH}/api/node-status`, { headers: authHeaders() });
+                if (!res.ok) throw new Error('unauthorized');
+                localStorage.setItem('db2_api_key', apiKey);
+                document.getElementById('authGate').style.display = 'none';
+                hitlModal = new bootstrap.Modal(document.getElementById('hitlModal'));
+                logConsole('Signed in. Fetching node status reports…');
+                boot();
+            } catch (e) {
+                document.getElementById('authError').classList.remove('d-none');
+            }
+        }
+
+        function signOut() {
+            localStorage.removeItem('db2_api_key');
+            if (pollTimer) clearInterval(pollTimer);
+            if (tickTimer) clearInterval(tickTimer);
+            location.reload();
+        }
+
+        function logConsole(msg, tag = 'INFO') {
+            const term = document.getElementById('consoleTerminal');
+            const time = new Date().toLocaleTimeString();
+            const line = document.createElement('div');
+            line.textContent = `[${time}] [${tag}] ${msg}`;
+            term.appendChild(line);
+            term.scrollTop = term.scrollHeight;
+        }
+
+        function toggleSelection(key) {
+            document.getElementById(`card-${key}`).classList.toggle('selected');
+            syncTagActiveState();
+        }
+
+        function selectPreset(type) {
+            allKeys.forEach(key => {
+                const card = document.getElementById(`card-${key}`);
+                if (type === 'all') card.classList.add('selected');
+                else if (type === 'appa') key.startsWith('appa') ? card.classList.add('selected') : card.classList.remove('selected');
+                else if (type === 'appb') key.startsWith('appb') ? card.classList.add('selected') : card.classList.remove('selected');
+            });
+            ['all', 'appa', 'appb'].forEach(t => document.getElementById(`tag-${t}`).classList.toggle('active', t === type));
+        }
+
+        function syncTagActiveState() {
+            // If selection no longer matches a preset exactly, none of the tag cards should look "active".
+            const selected = allKeys.filter(k => document.getElementById(`card-${k}`).classList.contains('selected'));
+            const isAll = selected.length === 4;
+            const isA = selected.length === 2 && selected.every(k => k.startsWith('appa'));
+            const isB = selected.length === 2 && selected.every(k => k.startsWith('appb'));
+            document.getElementById('tag-all').classList.toggle('active', isAll);
+            document.getElementById('tag-appa').classList.toggle('active', isA);
+            document.getElementById('tag-appb').classList.toggle('active', isB);
+        }
+
+        // ---------------- Node status polling (keeps the console "alive" instead of static) ----------------
+        async function refreshNodeStatuses(silent) {
+            if (!silent) logConsole('Running live TCP port health checks…');
+            setTopStatus('busy', 'Checking nodes…');
+            try {
+                const res = await fetch(`${BASE_PATH}/api/node-status`, { headers: authHeaders() });
+                if (res.status === 401) return signOut();
+                const data = await res.json();
+                lastNodeData = data.nodes || {};
+                let onlineCount = 0, offlineCount = 0;
+                Object.keys(lastNodeData).forEach(key => {
+                    const node = lastNodeData[key];
+                    const dot = document.getElementById(`dot-${key}`);
+                    const txt = document.getElementById(`txt-${key}`);
+                    const lc = document.getElementById(`lc-${key}`);
+                    if (!dot || !txt) return;
+                    document.getElementById(`host-${key}`).textContent = `${node.host}:${node.port}`;
+                    if (node.status === 'online') {
+                        dot.className = 'status-dot dot-online';
+                        txt.className = 'text-success fw-bold';
+                        txt.textContent = 'Online';
+                        onlineCount++;
+                    } else {
+                        dot.className = 'status-dot dot-offline';
+                        txt.className = 'text-danger fw-bold';
+                        txt.textContent = 'Offline';
+                        offlineCount++;
+                    }
+                    if (lc) lc.textContent = 'checked just now';
+                });
+                lastCheckedAt = Date.now();
+                document.getElementById('lastCheckedText').textContent = `Last checked just now · ${onlineCount} online, ${offlineCount} offline.`;
+                setTopStatus('live', `Live — checked just now`);
+                updateTagSummaries();
+                if (!silent) logConsole('Node health status updated.');
+            } catch (err) {
+                setTopStatus('down', 'Node status check failed');
+                logConsole('Could not reach the backend API for node status.', 'ERROR');
+            }
+        }
+
+        function updateTagSummaries() {
+            const groups = { all: allKeys, appa: allKeys.filter(k => k.startsWith('appa')), appb: allKeys.filter(k => k.startsWith('appb')) };
+            Object.entries(groups).forEach(([tag, keys]) => {
+                const offline = keys.filter(k => lastNodeData[k] && lastNodeData[k].status !== 'online').length;
+                const highRiskItems = (lastScanDriftItems || []).filter(it => {
+                    const belongsToTag = tag === 'all' || (it.application || '').toLowerCase().includes(tag === 'appa' ? 'app a' : 'app b');
+                    return belongsToTag && it.risk === 'High';
+                }).length;
+                const badgesEl = document.getElementById(`badges-${tag}`);
+                if (!badgesEl) return;
+                badgesEl.innerHTML = '';
+                if (offline > 0) badgesEl.innerHTML += `<span class="mini-badge crit"><i class="fa-solid fa-circle-exclamation"></i>${offline}</span>`;
+                if (highRiskItems > 0) badgesEl.innerHTML += `<span class="mini-badge warn"><i class="fa-solid fa-triangle-exclamation"></i>${highRiskItems}</span>`;
+                if (offline === 0 && highRiskItems === 0) badgesEl.innerHTML = `<span class="mini-badge ok"><i class="fa-solid fa-check"></i>Nominal</span>`;
+            });
+        }
+        let lastScanDriftItems = [];
+
+        function startPolling() {
+            if (pollTimer) clearInterval(pollTimer);
+            pollTimer = setInterval(() => refreshNodeStatuses(true), 20000);
+            if (tickTimer) clearInterval(tickTimer);
+            tickTimer = setInterval(() => {
+                if (!lastCheckedAt) return;
+                document.getElementById('topStatusText').textContent = `Live — checked ${timeAgo(lastCheckedAt)}`;
+                allKeys.forEach(key => {
+                    const lc = document.getElementById(`lc-${key}`);
+                    if (lc && lastNodeData[key]) lc.textContent = `checked ${timeAgo(lastCheckedAt)}`;
+                });
+            }, 5000);
+        }
+
+        async function loadActivity() {
+            const feed = document.getElementById('activityFeed');
+            try {
+                const res = await fetch(`${BASE_PATH}/api/audit-log/recent?limit=15`, { headers: authHeaders() });
+                if (res.status === 401) return signOut();
+                const data = await res.json();
+                feed.innerHTML = '';
+                if (!data.events.length) {
+                    feed.textContent = 'No activity yet — run a scan to populate this feed.';
+                    return;
+                }
+                data.events.forEach(ev => {
+                    const row = document.createElement('div');
+                    row.className = 'activity-row';
+                    const left = document.createElement('div');
+                    const badgeColor = ev.status === 'SUCCESS' || ev.status === 'NO_DRIFT' ? 'text-success'
+                        : (ev.status === 'FAILED' || ev.status === 'BLOCKED' || ev.status === 'SCAN_FAILED' ? 'text-danger' : 'text-warning');
+                    left.innerHTML = `<div class="fw-bold">${esc(ev.event_type)} · ${esc(ev.cluster_app || '—')}</div>
+                        <div class="activity-meta">${esc(ev.actor || 'system')} · ${new Date(ev.timestamp).toLocaleString()}</div>`;
+                    const right = document.createElement('span');
+                    right.className = `small fw-bold ${badgeColor}`;
+                    right.textContent = ev.status || ev.overall_risk || '';
+                    row.appendChild(left);
+                    row.appendChild(right);
+                    feed.appendChild(row);
+                });
+            } catch (err) {
+                feed.textContent = 'Could not load recent activity.';
+            }
+        }
+
+        async function downloadAuditCsv() {
+            try {
+                const res = await fetch(`${BASE_PATH}/api/download-audit-log`, { headers: authHeaders() });
+                if (res.status === 401) return signOut();
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `db2_drift_audit_${new Date().toISOString().slice(0,10)}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+            } catch (e) {
+                alert('Could not export the audit log: ' + e.message);
+            }
+        }
+
+        async function executeScan() {
+            const selected = allKeys.filter(k => document.getElementById(`card-${k}`).classList.contains('selected'));
+            if (selected.length === 0) { alert('Select at least one node to scan.'); return; }
+
+            const scanBtn = document.getElementById('scanBtn');
+            const resultsCard = document.getElementById('resultsCard');
+            scanBtn.disabled = true;
+            resultsCard.classList.add('d-none');
+            logConsole(`Triggering live config & HADR state query for: ${selected.join(', ')}…`);
+
+            try {
+                const response = await fetch(`${BASE_PATH}/api/run-drift-check`, {
+                    method: 'POST',
+                    headers: authHeaders({ 'Content-Type': 'application/json' }),
+                    body: JSON.stringify({ nodes: selected })
+                });
+                if (response.status === 401) return signOut();
+
+                logConsole('Retrieving Db2 documentation & submitting to Azure AI Foundry for analysis…', 'AZURE AI');
+                const res = await response.json();
+                scanBtn.disabled = false;
+
+                if (res.status === 'error') {
+                    logConsole(`Analysis failed: ${res.message}`, 'ERROR');
+                    alert(`Error: ${res.message}`);
+                    return;
+                }
+
+                lastClusterNodeMap = res.data.clusterNodeMap || {};
+                lastScanDriftItems = res.data.items || [];
+                logConsole('AI mentor analysis received and logged to the audit trail.', 'AZURE AI');
+                renderResults(res.data);
+                updateTagSummaries();
+                loadActivity();
+            } catch (err) {
+                scanBtn.disabled = false;
+                logConsole(`Execution request failed: ${err}`, 'ERROR');
+            }
+        }
+
+        function renderResults(data) {
+            const card = document.getElementById('resultsCard');
+            const header = document.getElementById('resultsHeader');
+            const title = document.getElementById('resultsTitle');
+            const badge = document.getElementById('riskBadge');
+            const mentorSummaryText = document.getElementById('mentorSummaryText');
+            const topDiffSection = document.getElementById('topDiffSection');
+            const topDiffContainer = document.getElementById('topDiffContainer');
+            const list = document.getElementById('driftItemsList');
+            const validationCode = document.getElementById('validationCode');
+            const servicenowSection = document.getElementById('servicenowSection');
+            const hadrWarningBox = document.getElementById('hadrWarningBox');
+            const hadrWarningText = document.getElementById('hadrWarningText');
+            const deferredSection = document.getElementById('deferredPileSection');
+
+            card.classList.remove('d-none');
+            mentorSummaryText.textContent = data.mentorSummary || "Analysis completed successfully.";
+
+            if (data.hadrHealthy === false || (data.hadrWarning && data.hadrWarning.trim() !== '')) {
+                hadrWarningBox.classList.remove('d-none');
+                hadrWarningText.textContent = data.hadrWarning;
+            } else {
+                hadrWarningBox.classList.add('d-none');
+            }
+
+            const isDrift = (data.driftStatus === 'DRIFT' || data.driftDetected);
+
+            if (!isDrift) {
+                header.className = 'card-header bg-success text-white py-3';
+                title.innerHTML = '<i class="fa-solid fa-circle-check me-2"></i>Status: NO_DRIFT (in sync)';
+                badge.className = 'badge bg-white text-success fs-6';
+                badge.textContent = 'NO RISK';
+                topDiffSection.classList.add('d-none');
+                servicenowSection.classList.add('d-none');
+                deferredSection.classList.remove('has-items');
+
+                list.innerHTML = '';
+                const alertBox = document.createElement('div');
+                alertBox.className = 'alert alert-success d-flex align-items-center shadow-sm';
+                alertBox.innerHTML = `<i class="fa-solid fa-shield-halved fa-2x me-3"></i>
+                    <div><strong>Primary and standby are in full parity.</strong><br>
+                    Every evaluated database and database-manager parameter matches across nodes. No change ticket is needed.</div>`;
+                list.appendChild(alertBox);
+
+                validationCode.textContent = data.monitoringAdvice || "Routine best practice: monitor HADR status continuously and run scheduled drift inspections.";
+            } else {
+                servicenowSection.classList.remove('d-none');
+                header.className = data.overallRisk === 'High' ? 'card-header bg-danger text-white py-3' : 'card-header bg-warning text-dark py-3';
+                title.innerHTML = '<i class="fa-solid fa-triangle-exclamation me-2"></i>Status: drift detected';
+                badge.className = `badge bg-white ${data.overallRisk === 'High' ? 'text-danger' : 'text-dark'} fs-6`;
+                badge.textContent = `${(data.overallRisk || 'MEDIUM').toUpperCase()} RISK`;
+
+                topDiffContainer.innerHTML = '';
+                if (data.topDifferences && data.topDifferences.length > 0) {
+                    topDiffSection.classList.remove('d-none');
+                    data.topDifferences.slice(0, 3).forEach(diff => {
+                        const col = document.createElement('div');
+                        col.className = 'col-md-4';
+                        col.innerHTML = `<div class="card h-100 border-primary shadow-sm"><div class="card-body">
+                            <span class="badge bg-primary mb-2">${esc(diff.impactArea || 'HADR parity')}</span>
+                            <h6 class="fw-bold mb-2">${esc(diff.parameter)}</h6>
+                            <p class="small mb-0">${esc(diff.explanation)}</p></div></div>`;
+                        topDiffContainer.appendChild(col);
+                    });
+                } else {
+                    topDiffSection.classList.add('d-none');
+                }
+
+                // The backend sometimes tags an item's driftType inconsistently, or leaves
+                // reasoning text ("...exclude", "I will remove this item") sitting in a
+                // None-risk item with an empty remediation instead of actually dropping it.
+                // Rather than trust those fields blindly, split items on what they actually
+                // contain: no risk + no remediation command = nothing to act on.
+                const allItems = data.items || [];
+                const isNoOp = (it) => (!it.risk || /^none$/i.test(String(it.risk).trim())) && (!it.remediation || !String(it.remediation).trim());
+                const actionableItems = allItems.filter(it => !isNoOp(it));
+                const noActionItems = allItems.filter(isNoOp);
+
+                // Deferred pile — built from actionable items only, so parameters the AI
+                // already confirmed match baseline don't clutter the pile.
+                const deferredItems = actionableItems.filter(it => it.updateType === 'DEFERRED');
+                document.getElementById('pileCount').textContent = deferredItems.length;
+                const chips = document.getElementById('pileChips');
+                chips.innerHTML = deferredItems.length
+                    ? deferredItems.map(it => `<span class="pile-item-chip"><span class="status-dot ${it.risk === 'High' ? 'dot-offline' : 'dot-checking'}"></span>${esc(it.parameter)}</span>`).join('')
+                    : '<span class="text-muted small">Nothing waiting on a restart right now.</span>';
+                deferredSection.classList.toggle('has-items', deferredItems.length > 0);
+
+                list.innerHTML = '';
+                actionableItems.forEach((item, idx) => {
+                    const appLabel = item.application ? `[${esc(item.application)}] ` : '';
+                    const div = document.createElement('div');
+                    div.className = 'card mb-3 border-secondary shadow-sm';
+
+                    // Show the baseline column whenever a baseline value exists at all —
+                    // don't gate it on driftType, since primary/standby can be perfectly in
+                    // sync with EACH OTHER while both still drifted from the golden baseline.
+                    // That's a baseline violation regardless of what driftType says.
+                    const hasBaseline = item.baselineValue !== undefined && item.baselineValue !== null && String(item.baselineValue).trim() !== '';
+                    const nodesMatch = String(item.primaryValue) === String(item.standbyValue);
+                    const valuesRowHtml = hasBaseline ? `
+                        <div class="col-md-4 text-info"><strong>Baseline:</strong> <code>${esc(item.baselineValue)}</code></div>
+                        <div class="col-md-4"><strong>Primary:</strong> <code>${esc(item.primaryValue)}</code></div>
+                        <div class="col-md-4"><strong>Standby:</strong> <code>${esc(item.standbyValue)}</code></div>
+                    ` : `
+                        <div class="col-md-6"><strong>Primary (source of truth):</strong> <code>${esc(item.primaryValue)}</code></div>
+                        <div class="col-md-6"><strong>Standby:</strong> <code>${esc(item.standbyValue)}</code></div>
+                    `;
+                    const scopeBadge = hasBaseline
+                        ? (nodesMatch
+                            ? '<span class="badge bg-primary me-1" title="Primary and standby agree with each other, but both differ from the golden baseline">Baseline drift</span>'
+                            : '<span class="badge bg-primary me-1" title="Primary and standby disagree with each other, and at least one differs from baseline">Baseline + node drift</span>')
+                        : '<span class="badge bg-primary me-1" title="Primary and standby disagree with each other; no baseline is defined for this parameter">Node drift</span>';
+
+                    div.innerHTML = `
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h5 class="fw-bold text-primary mb-0">${appLabel}${esc(item.parameter)}</h5>
+                                <div>
+                                    ${scopeBadge}
+                                    <span class="badge ${item.updateType === 'DEFERRED' ? 'bg-danger' : 'bg-info text-dark'} me-1">${esc(item.updateType || 'IMMEDIATE')}</span>
+                                    <span class="badge ${item.risk === 'High' ? 'bg-danger' : 'bg-warning text-dark'}">${esc(item.risk)} risk</span>
+                                </div>
+                            </div>
+                            <div class="row bg-light rounded p-2 mb-2 mx-0">
+                                ${valuesRowHtml}
+                            </div>
+                            <p class="mb-2"><strong>Impact:</strong> ${esc(item.impact)}</p>
+                            <div class="bg-dark text-white rounded p-2 mb-2">
+                                <small class="text-warning font-monospace">Remediation command(s) (target: ${esc(item.remediationTarget)} — runs on every listed node):</small>
+                                <code class="remediation-cmd mt-1">${esc(item.remediation)}</code>
+                            </div>
+                            <button class="btn btn-outline-warning btn-sm" data-idx="${idx}">
+                                <i class="fa-solid fa-shield-halved me-1"></i>Review &amp; authorize fix
+                            </button>
+                        </div>`;
+                    div.querySelector('button').addEventListener('click', () => openModal(item));
+                    list.appendChild(div);
+                });
+
+                if (noActionItems.length > 0) {
+                    const details = document.createElement('details');
+                    details.className = 'mb-2';
+                    details.innerHTML = `
+                        <summary class="text-muted small" style="cursor:pointer;">
+                            <i class="fa-solid fa-circle-check text-success me-1"></i>${noActionItems.length} parameter(s) already match baseline — no action needed
+                        </summary>
+                        <div class="mt-2 d-flex flex-wrap">
+                            ${noActionItems.map(it => `<span class="pile-item-chip"><span class="status-dot dot-online"></span>${esc((it.application ? '[' + it.application + '] ' : '') + it.parameter)}</span>`).join('')}
+                        </div>`;
+                    list.appendChild(details);
+                }
+
+                validationCode.textContent = data.validationCheck || 'db2 "select name, value from sysibmadm.dbcfg"\ndb2 "select name, value from sysibmadm.dbmcfg"';
+
+                if (data.servicenowCR) {
+                    const cr = data.servicenowCR;
+                    const core = cr.coreFields || cr;
+                    document.getElementById('snShortDesc').textContent = core.shortDescription || 'N/A';
+                    document.getElementById('snCi').textContent = core.ci || 'N/A';
+                    document.getElementById('snCategory').textContent = `${core.category || 'Database'} | Assignment group: ${core.assignmentGroup || 'DB2OPS'}`;
+                    document.getElementById('snOutage').textContent = core.requiresOutage ? 'Yes — outage window required' : 'No — dynamic update, no outage';
+                    document.getElementById('snDesc').textContent = core.description || 'N/A';
+                    document.getElementById('snPlan').textContent = cr.implementationPlan || 'N/A';
+                    document.getElementById('snBackout').textContent = cr.backoutPlan || 'N/A';
+                    document.getElementById('snTesting').textContent = cr.testPlan || 'N/A';
+
+                    const ctasksEl = document.getElementById('snCtasks');
+                    ctasksEl.innerHTML = '';
+                    if (cr.ctasks && cr.ctasks.length > 0) {
+                        const ul = document.createElement('ul');
+                        ul.className = 'mb-0 ps-3';
+                        cr.ctasks.forEach(t => {
+                            const li = document.createElement('li');
+                            li.innerHTML = `<strong>${esc(t.taskName)}</strong> (${esc(t.assignmentGroup)}) — expected state: <code>${esc(t.expectedState)}</code>`;
+                            ul.appendChild(li);
+                        });
+                        ctasksEl.appendChild(ul);
+                    } else {
+                        ctasksEl.textContent = 'N/A';
+                    }
+                }
+            }
+            card.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function copyServiceNowTable() {
+            const shortDesc = document.getElementById('snShortDesc').textContent;
+            const ci = document.getElementById('snCi').textContent;
+            const desc = document.getElementById('snDesc').textContent;
+            const plan = document.getElementById('snPlan').textContent;
+            const backout = document.getElementById('snBackout').textContent;
+            const testing = document.getElementById('snTesting').textContent;
+            const textToCopy = `--- SERVICENOW CHANGE REQUEST TEMPLATE ---
+Short Description: ${shortDesc}
+Target CI: ${ci}
+
+Description:
+${desc}
+
+Implementation Plan:
+${plan}
+
+Backout Plan:
+${backout}
+
+Test Plan:
+${testing}`;
+            navigator.clipboard.writeText(textToCopy);
+            alert('ServiceNow change request template copied to clipboard!');
+        }
+
+        function resolveTargetIp(appName, remediationTarget) {
+            const nodes = lastClusterNodeMap[appName];
+            if (!nodes) return [];
+            if (remediationTarget === 'PRIMARY') return [nodes.primary];
+            if (remediationTarget === 'STANDBY') return [nodes.standby];
+            // BOTH: same command sequence applied once per node. Standby first.
+            if (remediationTarget === 'BOTH') return [nodes.standby, nodes.primary];
+            return [nodes.standby];
+        }
+
+        function openModal(item) {
+            const targetIps = resolveTargetIp(item.application, item.remediationTarget);
+            document.getElementById('modalAppName').textContent = `${item.application || ''} (${item.remediationTarget || ''})`;
+            document.getElementById('modalBadge').className = `badge ${item.driftType === 'BASELINE_VIOLATION' ? 'bg-info' : 'bg-danger'}`;
+            document.getElementById('modalBadge').textContent = item.driftType || '';
+            document.getElementById('modalBaseVal').textContent = item.baselineValue || 'N/A';
+            document.getElementById('modalPriVal').textContent = item.primaryValue || '';
+            document.getElementById('modalStbyVal').textContent = item.standbyValue || '';
+            document.getElementById('modalRca').textContent = item.impact || 'Configuration drift detected.';
+            document.getElementById('modalCmd').textContent = item.remediation || '';
+            document.getElementById('targetApp').value = item.application || '';
+            document.getElementById('targetIp').value = JSON.stringify(targetIps);
+            document.getElementById('modalTargetDisplay').textContent = targetIps.join(', ') || 'Unknown — re-run the scan';
+            hitlModal.show();
+        }
+
+        async function executeFix() {
+            const btn = document.getElementById('execBtn');
+            const nodeIpsRaw = document.getElementById('targetIp').value;
+            let nodeIps = [];
+
+            try {
+                nodeIps = JSON.parse(nodeIpsRaw);
+            } catch (e) {
+                alert('Target IP unresolved — re-run the scan and try again.');
+                return;
+            }
+
+            if (!nodeIps || nodeIps.length === 0) {
+                alert('Target IP unresolved — re-run the scan and try again.');
+                return;
+            }
+
+            const cmdText = document.getElementById('modalCmd').textContent;
+            if (/\bdb2stop\b|\bdb2start\b/i.test(cmdText)) {
+                if (!confirm('This command stops or starts the ENTIRE Db2 instance on the target node(s), affecting every database on that node — not just this one. Continue?')) {
+                    return;
+                }
+            }
+
+            btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Executing…`;
+            btn.disabled = true;
+            try {
+                const res = await fetch(`${BASE_PATH}/api/agent/remediate/execute`, {
+                    method: 'POST',
+                    headers: authHeaders({ 'Content-Type': 'application/json' }),
+                    body: JSON.stringify({
+                        node_ips: nodeIps,
+                        command: cmdText,
+                        app_name: document.getElementById('targetApp').value,
+                        reason: "Automated HITL drift remediation"
+                    })
+                });
+                if (res.status === 401) return signOut();
+                const result = await res.json();
+                btn.innerHTML = '<i class="fa-solid fa-check me-1"></i>Authorize & execute via SSH';
+                btn.disabled = false;
+                hitlModal.hide();
+                alert(result.status === 'success' ? `Success:\n${result.output}` : `Failed:\n${result.output || result.detail}`);
+                loadActivity();
+            } catch (e) {
+                btn.innerHTML = '<i class="fa-solid fa-check me-1"></i>Authorize & execute via SSH';
+                btn.disabled = false;
+                alert(`Execution error: ${e.message}`);
+            }
+        }
+
+        // ---------------- Live diag stream: resilient WS with backoff + demo fallback ----------------
+        function setWsStatus(mode, text) {
+            const pill = document.getElementById('wsStatusPill');
+            pill.className = `status-pill ${mode}`;
+            pill.style.fontSize = '.65rem'; pill.style.padding = '.3rem .6rem';
+            document.getElementById('wsStatusText').textContent = text;
+        }
+
+        function toggleStream() {
+            if (streaming || wsDemoMode) { disconnectStream(); } else { wsUserRequested = true; wsReconnectAttempts = 0; connectSocket(); }
+        }
+
+        // WS close codes worth naming explicitly — the number alone rarely means
+        // anything to whoever's debugging this at 2am.
+        const WS_CLOSE_REASONS = {
+            1000: 'Normal closure.',
+            1001: 'Server going away (redeploy/restart?).',
+            1002: 'Protocol error.',
+            1006: 'Abnormal closure — the connection never completed its handshake. This usually means a reverse proxy rejected the Upgrade request, or TLS (wss) isn\'t actually terminated on this path, before your app ever saw it.',
+            1008: 'Policy violation — check the route is validating api_key correctly.',
+            1011: 'Server error while handling the connection.',
+            1015: 'TLS handshake failed.'
+        };
+
+        function connectSocket() {
+            const term = document.getElementById('diagTerminal');
+            if (wsReconnectAttempts === 0) term.textContent = '';
+            const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProto}//${window.location.host}${BASE_PATH}/ws/logs/stream/all?api_key=${encodeURIComponent(apiKey)}`;
+            logConsole(`Connecting live log multiplexer → ${wsUrl}`);
+            if (window.location.protocol === 'https:' && BASE_PATH === undefined) {
+                logConsole('BASE_PATH is undefined — the server-side template variable may not be rendering. Check this page is being served through your app (not as a static file).', 'ERROR');
+            }
+            setWsStatus('busy', 'Connecting…');
+
+            try {
+                streamSocket = new WebSocket(wsUrl);
+            } catch (e) {
+                logConsole(`Could not construct WebSocket: ${e.message}`, 'ERROR');
+                handleSocketFailure('Could not open the socket.');
+                return;
+            }
+
+            streaming = true;
+            document.getElementById('streamBtn').textContent = '■ Disconnect';
+
+            streamSocket.onopen = () => {
+                wsReconnectAttempts = 0;
+                setWsStatus('live', 'Live');
+                logConsole('Diag log multiplexer connected.');
+            };
+
+            streamSocket.onmessage = (e) => {
+                let data;
+                try { data = JSON.parse(e.data); } catch (err) { return; }
+                appendLogLine(data, false);
+            };
+
+            streamSocket.onerror = (ev) => {
+                logConsole('WebSocket error event fired (browsers withhold details here for security — the close event below has the real reason).', 'ERROR');
+            };
+
+            streamSocket.onclose = (ev) => {
+                streaming = false;
+                const reason = ev.reason || WS_CLOSE_REASONS[ev.code] || 'No reason given by server.';
+                logConsole(`Socket closed — code ${ev.code} (clean: ${ev.wasClean}). ${reason}`, 'ERROR');
+                if (wsDemoMode) return; // demo loop owns the UI now
+                if (wsUserRequested && wsReconnectAttempts < WS_MAX_ATTEMPTS) {
+                    handleSocketFailure(`Connection closed (code ${ev.code}).`);
+                } else if (wsUserRequested) {
+                    // Retries exhausted — tell the user plainly and offer a demo stream instead of just failing silently.
+                    setWsStatus('down', 'Live feed unavailable');
+                    document.getElementById('streamBtn').textContent = '▶ Connect';
+                    logConsole(`Gave up after ${WS_MAX_ATTEMPTS} attempts — the /ws/logs/stream/all route did not respond. Starting a demo stream so you can still try log analysis.`, 'ERROR');
+                    startDemoStream();
+                } else {
+                    setWsStatus('down', 'Not connected');
+                    document.getElementById('streamBtn').textContent = '▶ Connect';
+                }
+            };
+        }
+
+        function handleSocketFailure(reason) {
+            wsReconnectAttempts++;
+            const delay = Math.min(1000 * Math.pow(2, wsReconnectAttempts), 15000);
+            setWsStatus('busy', `Reconnecting in ${Math.round(delay/1000)}s (attempt ${wsReconnectAttempts}/${WS_MAX_ATTEMPTS})`);
+            logConsole(`${reason} Retrying in ${Math.round(delay/1000)}s…`, 'ERROR');
+            wsReconnectTimer = setTimeout(() => { if (wsUserRequested) connectSocket(); }, delay);
+        }
+
+        function disconnectStream() {
+            wsUserRequested = false;
+            if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+            if (streamSocket) streamSocket.close();
+            stopDemoStream();
+            streaming = false;
+            setWsStatus('down', 'Not connected');
+            document.getElementById('streamBtn').textContent = '▶ Connect';
+        }
+
+        // Demo mode: only engages after the real socket has been retried and
+        // failed, and every line is tagged DEMO so it's never mistaken for
+        // a real diagnostic event.
+        const DEMO_SAMPLES = [
+            { app: 'App A · KYDB2A', ip: '10.20.14.11', db: 'KYDB2A', content: 'HADR_TARGET_LIST value differs from baseline on standby node.' },
+            { app: 'App A · KYDB2A', ip: '10.20.14.12', db: 'KYDB2A', content: 'Log replay delayed by 4.2s behind primary; within tolerance.' },
+            { app: 'App B · KYDB2B', ip: '10.20.16.21', db: 'KYDB2B', content: 'LOCKTIMEOUT config mismatch flagged during last parity check.' },
+            { app: 'App B · KYDB2B', ip: '10.20.16.22', db: 'KYDB2B', content: 'Standby reconnected after brief network blip; HADR state PEER.' }
+        ];
+        function startDemoStream() {
+            wsDemoMode = true;
+            setWsStatus('busy', 'Demo stream (backend unreachable)');
+            document.getElementById('streamBtn').textContent = '■ Disconnect';
+            let i = 0;
+            wsDemoTimer = setInterval(() => {
+                appendLogLine(DEMO_SAMPLES[i % DEMO_SAMPLES.length], true);
+                i++;
+            }, 3500);
+        }
+        function stopDemoStream() {
+            if (wsDemoTimer) clearInterval(wsDemoTimer);
+            wsDemoMode = false;
+        }
+
+        function appendLogLine(data, isDemo) {
+            const term = document.getElementById('diagTerminal');
+            const line = document.createElement('div');
+            line.className = 'mb-2 pb-2 border-bottom border-secondary';
+
+            const header = document.createElement('span');
+            header.className = 'text-info';
+            header.textContent = `[${data.app} - ${data.ip}]`;
+            if (isDemo) {
+                const tag = document.createElement('span');
+                tag.className = 'log-demo-tag';
+                tag.textContent = 'DEMO';
+                header.appendChild(tag);
+            }
+
+            const content = document.createElement('div');
+            content.className = 'log-error small';
+            content.textContent = data.content;
+
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-sm btn-outline-info mt-1';
+            btn.innerHTML = '<i class="fa-solid fa-robot me-1"></i>AI root cause & fix';
+            btn.addEventListener('click', () => analyzeLog(btn, data.content, data.db, data.ip, data.app, isDemo));
+
+            line.appendChild(header);
+            line.appendChild(document.createElement('br'));
+            line.appendChild(content);
+            line.appendChild(document.createElement('br'));
+            line.appendChild(btn);
+            term.appendChild(line);
+            term.scrollTop = term.scrollHeight;
+        }
+
+        async function analyzeLog(btn, logContent, dbName, ip, appName, isDemo) {
+            if (isDemo) {
+                // No live backend to call — show a clearly-labeled canned RCA instead of failing.
+                document.getElementById('modalAppName').textContent = `Log analysis — ${appName} (demo)`;
+                document.getElementById('modalBadge').className = 'bg-warning text-dark badge';
+                document.getElementById('modalBadge').textContent = 'DEMO — NOT A REAL FIX';
+                document.getElementById('modalBaseVal').textContent = 'N/A';
+                document.getElementById('modalPriVal').textContent = 'Demo log';
+                document.getElementById('modalStbyVal').textContent = 'Demo log';
+                document.getElementById('modalRca').textContent = 'This is a sample root-cause explanation shown while the live analysis backend is unreachable. Connect the real /ws/logs/stream/all and /api/agent/logs/analyze routes to replace this with a live result.';
+                document.getElementById('modalCmd').textContent = '-- staged command unavailable in demo mode --';
+                document.getElementById('targetIp').value = JSON.stringify([ip]);
+                document.getElementById('modalTargetDisplay').textContent = ip;
+                document.getElementById('targetApp').value = (appName || '').split(' ')[0];
+                hitlModal.show();
+                return;
+            }
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Analyzing…';
+            btn.disabled = true;
+            try {
+                const res = await fetch(`${BASE_PATH}/api/agent/logs/analyze`, {
+                    method: 'POST',
+                    headers: authHeaders({ 'Content-Type': 'application/json' }),
+                    body: JSON.stringify({ log_snippet: logContent, db_name: dbName, cluster_app: appName, node_ip: ip })
+                });
+                if (res.status === 401) return signOut();
+                const data = await res.json();
+
+                document.getElementById('modalAppName').textContent = `Log analysis — ${appName}`;
+                document.getElementById('modalBadge').className = 'bg-danger badge';
+                document.getElementById('modalBadge').textContent = 'SEVERE LOG ALERT';
+                document.getElementById('modalBaseVal').textContent = 'N/A';
+                document.getElementById('modalPriVal').textContent = 'Live log';
+                document.getElementById('modalStbyVal').textContent = 'Live log';
+                document.getElementById('modalRca').textContent = data.analysis.rca || 'No root cause was returned.';
+                document.getElementById('modalCmd').textContent = data.analysis.staged_command || 'No command staged.';
+                document.getElementById('targetIp').value = JSON.stringify([ip]);
+                document.getElementById('modalTargetDisplay').textContent = ip;
+                document.getElementById('targetApp').value = (appName || '').split(' ')[0];
+                hitlModal.show();
+            } catch (e) {
+                logConsole(`Log analysis request failed: ${e}`, 'ERROR');
+            } finally {
+                btn.innerHTML = '<i class="fa-solid fa-robot me-1"></i>AI root cause & fix';
+                btn.disabled = false;
+            }
+        }
+
+        // ---------------- Boot ----------------
+        function boot() {
+            refreshNodeStatuses();
+            loadActivity();
+            startPolling();
+        }
+
+        if (apiKey) {
+            document.getElementById('authGate').style.display = 'none';
+            document.addEventListener('DOMContentLoaded', () => {
+                hitlModal = new bootstrap.Modal(document.getElementById('hitlModal'));
+                boot();
+            });
+        }
+    </script>
+</body>
+</html>
